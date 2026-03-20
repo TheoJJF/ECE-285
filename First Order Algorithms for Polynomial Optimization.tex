@@ -1,0 +1,439 @@
+\documentclass[12pt]{l4dc2021}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{booktabs}
+
+% The following packages will be automatically loaded:
+% amsmath, amssymb, natbib, graphicx, url, algorithm2e
+
+\title[Inexact Projected Gradient Descent]{First-Order Algorithms for Polynomial Optimization}
+\usepackage{times}
+% Use \Name{Author Name} to specify the name.
+% If the surname contains spaces, enclose the surname
+% in braces, e.g. \Name{John {Smith Jones}} similarly
+% if the name has a "von" part, e.g \Name{Jane {de Winter}}.
+% If the first letter in the forenames is a diacritic
+% enclose the diacritic in braces, e.g. \Name{{\'E}louise Smith}
+
+% Two authors with the same address
+% \coltauthor{\Name{Author Name1} \Email{abc@sample.com}\and
+%  \Name{Author Name2} \Email{xyz@sample.com}\\
+%  \addr Address}
+
+% Three or more authors with the same address:
+% \coltauthor{\Name{Author Name1} \Email{an1@sample.com}\\
+%  \Name{Author Name2} \Email{an2@sample.com}\\
+%  \Name{Author Name3} \Email{an3@sample.com}\\
+%  \addr Address}
+
+% Authors with different addresses:
+\author{%
+ \Name{Theodore Fung} \Email{tyfung@ucsd.edu}\\
+ \addr{Department of Mathematics, UC San Diego} \\
+ \Name{Zoom Chow} \Email{zchow@ucsd.edu}\\
+ \addr{Department of Electrical and Computer Engineering, UC San Diego} 
+}
+
+\DeclareMathOperator{\sgn}{sgn}
+\DeclareMathOperator{\nlp}{nlp}
+\DeclareMathOperator{\argmin}{argmin}
+\DeclareMathOperator{\so}{SO3}
+\DeclareMathOperator{\trace}{tr}
+\DeclareMathOperator{\rank}{rank}
+
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}%
+    Semidefinite programming (SDP) relaxations are a powerful approach for solving polynomial optimization problems (POPs), yet their scalability remains a challenge. This paper surveys advancements in first-order methods for SDP relaxations, focusing on inexact projected gradient methods (iPGM) as proposed by~\cite{yang2021inexact}. Their method integrates projected gradient updates with rounding and nonlinear lifting strategies to efficiently solve rank-one SDP relaxations, enabling faster convergence and improved scalability. We contextualize this approach by reviewing related methodologies, including regularization techniques by \cite{nie2012regularization} and Alternating Direction Method of Multipliers (ADMM) based sum-of-squares methods by~\cite{zheng2018fast}. To validate iPGM’s effectiveness, we reproduce numerical results from~\cite{yang2021inexact} using the STRIDE algorithm and detail key proofs of the STRIDE algorithm. This study provides empirical insights into computational efficiency, convergence behavior, and solution accuracy, offering a comparative assessment of first-order methods for SDP relaxations in polynomial optimization.
+\end{abstract}
+
+\begin{keywords}%
+  Polynomial Optimization $\cdot$ Convergence Analysis $\cdot$ Semidefinite Relaxation%
+\end{keywords}
+
+\section{Introduction}
+    Polynomial optimization problems arise in various domains, including control theory, machine learning, and combinatorial optimization. These problems involve minimizing a polynomial objective function subject to polynomial equality and inequality constraints. Due to their inherent nonconvexity, a common approach is to relax the problem using semidefinite programming. However, solving large-scale SDP relaxations remains computationally challenging, particularly for high-dimensional problems. 
+    
+    \subsection{Semidefinite Relaxations for Polynomial Optimization}
+        A general polynomial optimization problem can be formulated as:
+        \begin{align} \label{eq:pop_eq} 
+            \min_{x \in \mathbb{R}^n} \quad & p(x)  \nonumber\\
+            \text{subject to} \quad & g_i(x) \geq 0, \quad i = 1, \dots, m, \\
+            & f_j(x) = 0, \quad j = 1, \dots, k, \nonumber 
+        \end{align} 
+        where \( p, g_i, f_j \) are multivariate polynomials with real coefficients. The Lasserre hierarchy provides a systematic approach to approximate the solution using SDP relaxations. The first-order relaxation is given by:
+        \begin{equation} \label{eq:pop_sdp_eq}
+            \min_{X \succeq 0} \langle C, X \rangle \quad \text{subject to} \quad \mathcal{A}(X) = b,
+        \end{equation}
+        where \( X \) is a moment matrix containing information about the original polynomial optimization problem.
+
+\section{Regularization for SDP Relaxations in Large-Scale POPs}  \label{sec:regularization}
+    Solving large-scale SDP relaxations of polynomial optimization problems poses significant computational challenges due to memory constraints and numerical instability. Regularization techniques improve the efficiency and stability of SDP solvers by modifying the problem structure while preserving feasibility. This section details the regularization methods proposed by~\cite{nie2012regularization}, particularly for SDP relaxations with block diagonal structures.
+    \subsection{Block Structure in SDP Relaxations}
+        Let \( \mathcal{K} \) denote the Cartesian product of several semidefinite cones:
+        \begin{equation}
+            \mathcal{K} = \mathbb{S}^{N_1}_+ \times \cdots \times \mathbb{S}^{N_\ell}_+,
+        \end{equation}
+        where \( \mathbb{S}^{N_i}_+ \) represents the cone of \( N_i \times N_i \) symmetric positive semidefinite matrices. The feasible solution set belongs to the space:
+        \begin{equation}
+            \mathcal{M} = \mathbb{S}^{N_1} \times \cdots \times \mathbb{S}^{N_\ell},
+        \end{equation}
+        where each \( X \in \mathcal{M} \) is a block diagonal matrix \( X = (X_1, X_2, \dots, X_\ell) \), satisfying \( X_i \succeq 0 \). The self-dual cone is given by:
+        \begin{equation}
+            \mathcal{K}^* = \{ Y \in \mathcal{M} \ | \ \langle Y, X \rangle \geq 0, \quad \forall X \in \mathcal{K} \}.
+        \end{equation}
+        For any symmetric matrix \( W \), its projections onto the positive and negative semidefinite cones are defined via spectral decomposition:
+        \begin{align}
+            (W)_+ &= \sum_{\lambda_i > 0} \lambda_i u_i u_i^T, \\
+            (W)_- &= \sum_{\lambda_i < 0} \lambda_i u_i u_i^T.
+        \end{align}
+        The block-diagonal structure of SDP relaxations for polynomial optimization motivates the development of specialized regularization techniques to handle large-scale instances efficiently.
+    \subsection{General Conic Semidefinite Optimization Formulation}
+        A general conic semidefinite optimization problem is given by:
+        \begin{equation}
+            \min_{X} \quad \langle C,X \rangle, \quad \text{s.t.} \quad \mathcal{A}(X) = b, \quad X \in \mathcal{K}.
+        \end{equation}
+        where \( C \in \mathcal{M} \), \( b \in \mathbb{R}^m \), and \( A: \mathcal{M} \to \mathbb{R}^m \) is a linear operator.
+        Its dual problem is:
+        \begin{equation}
+            \max_{y} \quad b^T y, \quad \text{s.t.} \quad \mathcal{A}^*(y) + Z = C, \quad Z \in \mathcal{K}^*.
+        \end{equation}
+        The SDP relaxations for polynomial optimization often exhibit a block diagonal structure, making traditional interior-point solvers computationally inefficient. To mitigate these challenges, two primary regularization techniques are introduced: Moreau-Yosida regularization and Augmented Lagrangian regularization.
+    
+    \subsection{Moreau-Yosida Regularization}
+        The Moreau-Yosida regularization modifies the primal SDP problem by introducing a squared Frobenius norm penalty:
+        \begin{equation}
+            \min_{X, Y \in \mathcal{M}} \quad \langle C,X \rangle + \frac{1}{2\sigma} \|X - Y\|^2, \quad \text{s.t.} \quad \mathcal{A}(X) = b, \quad Y \in \mathcal{K}.
+        \end{equation}
+        This formulation is equivalent to the original problem since the optimal \( Y \) satisfies \( Y = X \), but it improves numerical stability by ensuring better-conditioned iterates.
+    
+    \subsection{Augmented Lagrangian Regularization}
+        For the dual SDP problem, the augmented Lagrangian regularization takes the form:
+        \begin{equation}
+            \max_{y \in \mathbb{R}^m, Z \in \mathcal{M}} \quad b^T y - \langle (Z + \mathcal{A}^*(y) - C), Y \rangle - \frac{\sigma}{2}\|Z + \mathcal{A}^*(y) - C\|^2, \quad \text{s.t.} \quad Z \in \mathcal{K}.
+        \end{equation}
+        When \( \mathcal{K} = \mathbb{S}^N_+ \) consists of a single block, this is equivalent to solving:
+        \begin{equation}
+            \min_{X \in \mathcal{M}} \quad \langle C,X \rangle + \frac{1}{2\sigma} \|X - Y\|^2 - y^T (\mathcal{A}(X) - b) - \langle Z,X \rangle.
+        \end{equation}
+        By fixing \( y \) and optimizing over \( Z \), \cite{Malick2009} shows that this problem reduces to:
+        \begin{equation}
+            \max_{y \in \mathbb{R}^m} \quad b^T y - \frac{\sigma}{2} \| (\mathcal{A}^*(y) - C + \frac{Y}{\sigma})_\mathcal{K} \|^2 + \frac{1}{2\sigma} \|Y\|^2.
+        \end{equation}
+    
+    \subsection{Computational Benefits}
+        Regularization techniques significantly improve the feasibility and numerical stability of large-scale SDP relaxations. The Moreau-Yosida and Augmented Lagrangian regularizations provide:
+        \begin{itemize}
+            \item Better-conditioned SDP constraints, reducing solver instability.
+            \item Faster convergence in first-order methods, enabling efficient solutions for large \( N \).
+            \item Scalability to polynomial optimization problems with high-dimensional SDP relaxations.
+        \end{itemize}
+        These methods enhance the applicability of SDP relaxations in polynomial optimization, making them more suitable for real-world applications in control and combinatorial optimization.  
+    
+\section{Fast ADMM for Sum-of-Squares Optimization}  
+        Sum-of-Squares (SOS) optimization reformulates polynomial optimization problems as semidefinite programs (SDPs), which can be computationally demanding for large-scale instances. Traditional solvers like SeDuMi and SDPT3 rely on interior-point methods, which do not scale efficiently. \cite{zheng2018fast} propose a first order ADMM-based approach that exploits partial orthogonality in constraint matrices to enhance computational efficiency.
+
+    \subsection{ADMM for Homogeneous Self-Dual Embedding}
+        The proposed approach is based on solving the homogeneous self-dual embedding of the conic program:
+        \begin{equation}
+            \max_{y, z} \quad b^T y \quad \text{s.t.} \quad A^T y + z = c, \quad z \in K^*,
+        \end{equation}
+        where \( K^* \) is the dual of the cone \( K \). When strong duality holds, an optimal solution or a certificate of infeasibility can be extracted from the solution of the linear system:
+        \begin{equation}
+            \begin{bmatrix} 0 & -A^T & c \\ A & 0 & -b \\ -c^T & b^T & 0 \end{bmatrix}
+            \begin{bmatrix} \xi \\ y \\ \tau \end{bmatrix} =
+            \begin{bmatrix} z \\ s \\ \kappa \end{bmatrix},
+        \end{equation}
+        where \( (\xi, y, \tau) \in K \times \mathbb{R}^m \times \mathbb{R}_+ \) and \( (z, s, \kappa) \in K^* \times \{0\}^m \times \mathbb{R}_+ \).
+    
+    \subsection{Iterative ADMM Updates}
+        By defining:
+        \begin{equation}
+            u = \begin{bmatrix} \xi \\ y \\ \tau \end{bmatrix}, \quad
+            v = \begin{bmatrix} z \\ s \\ \kappa \end{bmatrix}, \quad
+            Q = \begin{bmatrix} 0 & -A^T & c \\ A & 0 & -b \\ -c^T & b^T & 0 \end{bmatrix},
+        \end{equation}
+        the homogeneous self-dual feasibility problem can be solved using a simplified ADMM update scheme:
+        \begin{align}
+            \hat{u}^{(k)} &= (I + Q)^{-1} ( u^{(k-1)} + v^{(k-1)} ), \label{eq:admm_u_hat}\\
+            u^{(k)} &= \mathcal{P}_C \left( \hat{u}^{(k)} - v^{(k-1)} \right), \\
+            v^{(k)} &= v^{(k-1)} - \hat{u}^{(k)} + u^{(k)}.
+        \end{align}
+    
+    \subsection{Exploiting Partial Orthogonality}
+        For SOS optimization, the matrix \( Q \) is typically large, making direct factorization computationally prohibitive. Instead, \cite{zheng2018fast} leverage the structure of the constraint matrix \( A \), which exhibits partial orthogonality, to efficiently solve the linear system:
+        \begin{equation}
+            \begin{bmatrix} I & -A^T \\ A & I \end{bmatrix} \begin{bmatrix} \sigma_1 \\ \sigma_2 \end{bmatrix} =
+            \begin{bmatrix} \hat{\omega}_1 \\ \hat{\omega}_2 \end{bmatrix}.
+        \end{equation}
+        By eliminating \( \sigma_1 \) from the second block equation, we obtain:
+        \begin{align}
+            \sigma_1 &= \hat{\omega}_1 + A^T \sigma_2, \\
+            (I + A A^T) \sigma_2 &= -A \hat{\omega}_1 + \hat{\omega}_2.
+        \end{align}
+        Using the matrix inversion lemma :
+        \begin{equation}
+            (A + BC)^{-1} = A^{-1} - A^{-1}B (I + CA^{-1}B)^{-1} CA^{-1},
+        \end{equation}
+        the inverse of \( (I + A A^T) \) is computed as:
+        \begin{equation}
+            (I + A A^T)^{-1} = P^{-1} - P^{-1} A_1 (I + A_1^T P^{-1} A_1)^{-1} A_1^T P^{-1}. 
+        \end{equation}
+        where \( P \) is a diagonal matrix and \( A_1 \) contains the leading rows of \( A \) associated with the largest eigenvalues. Since \( P \) is diagonal, its inverse is computed efficiently, reducing the cost of solving \( (I + A A^T) \sigma_2 \) to a small system of size \( t \times t \) (where \( t \ll m \)), significantly improving efficiency.
+    
+\section{Projected Gradient Methods for Rank-One SDP Relaxations}  \label{sec:ipgm}
+        Solving SDP relaxations of POPs often results in solutions that do not satisfy the rank-one constraint needed for extracting feasible polynomial solutions. Yang et al. address this issue by introducing an Inexact Projected Gradient Method (iPGM) with rounding and nonlinear lifting strategies. Given a rank-one SDP relaxation:
+        \begin{equation}
+            \min_{X \succeq 0} \langle C, X \rangle \quad \text{subject to} \quad \mathcal{A}(X) = b, \quad \text{rank}(X) = 1,
+        \end{equation}
+        standard SDP solvers relax the rank constraint, leading to high-rank solutions. The iPGM method combines gradient-based updates with rounding and nonlinear lifting techniques to solve rank-one semidefinite relaxations efficiently. The method iteratively updates a positive semidefinite matrix \( X^k \) via:
+        \begin{equation} \label{eq:psd_matrix_update}
+            X^{k} \approx \Pi_{\mathcal{F}_P} \left( X^{k-1} - \sigma_k C \right),
+        \end{equation}
+        where \( \Pi_{\mathcal{F}_P} \) denotes projection onto the feasible set, and \( \sigma_k \) is a step size parameter. The key innovation is the rank-one lifting and rounding procedure, which ensures that the solution remains close to a rank-one matrix. The rounding step is performed by eigenvalue decomposition:
+        \begin{equation}
+            X = \sum_{i} \lambda_i v_i v_i^T.
+        \end{equation}
+        The top eigenvector is selected to construct a rank-one approximation:
+        \begin{equation}
+            \hat{x} = \text{rounding}(v_1),
+        \end{equation}
+        where the rounding function selects the best candidate \( \hat{x} \) that satisfies the original polynomial constraints. \cite{yang2021inexact} implement this method in the STRIDE algorithm, demonstrating that iPGM outperforms traditional SDP solvers in terms of computational efficiency and scalability, particularly for large-scale rank-one constrained SDP relaxations.
+
+        \subsection{Inexact Projected Gradient Method} \label{sec:ipgm_main}
+        Recall the primal semidefinite relaxation given by (\ref{eq:pop_sdp_eq}). Then, the Lagrangian dual of the problem is given by:
+        \begin{equation} \label{eq:sdp_dual}
+            \max_{y \in \mathbb{R}^m, S \succeq 0} \langle b, y \rangle \quad \text{subject to} \quad \sum_{i=1}^{m}y_iA_i+S=C,
+        \end{equation}
+        with $(X^*,y^*,S^*)$ used to denote an optimal solution to (\ref{eq:pop_sdp_eq}) and (\ref{eq:sdp_dual}). The natural questions that follow are how fast does the iPGM method seen in (\ref{eq:psd_matrix_update}) converges to the optimal solution in (\ref{eq:pop_sdp_eq}).
+        \begin{theorem} \label{thm:ipgm}
+            Let $\{ \epsilon_k \}$ be a nonnegative sequence such that $\{ k\epsilon_k \}$ summable and $\{ \sigma_k \}$ be a nondecreasing positive sequence. Further let any sequence $\{ (X^k,y^k,S^k) \} \in \mathbb{S}_+^n \times \mathbb{R}^m \times \mathbb{S}_+^n$ generated by (\ref{eq:psd_matrix_update}) and for all $k\ge 0$, $\|y^k\| \le M$ for some $M>0$ and satisfies: 
+            \begin{align}
+                \| \mathcal{A}(X^k) - b \| & \le \epsilon_k, \label{eq:ipgm_conditons1} \\
+                \sum_{i=1}^m y_i^kA_i + S^k - C - \frac{1}{\sigma_k}(X^k - X^{k-1}) & = 0, \\
+                \langle X^k, S^k \rangle & = 0, \label{eq:ipgm_conditons3}\\
+                \max \{ \eta_p, \eta_d, \eta_g\} & \le \gamma, \nonumber
+            \end{align}
+            where $\gamma > 0$ is given and $\eta_p,\eta_d,\eta_g$ are defined as follows:
+            \begin{equation} \label{eq:stop_criterion}
+                \eta_p = \frac{\| \mathcal{A}(X^k) -b \|}{1 + \|b\|}, \eta_d= \frac{\|\sum_{i=1}^m y_i^kA_i + S^k - C\|}{1 + \|C\|}, \eta_g = \frac{|\langle C, X^k \rangle - \langle b, y^k\rangle|}{1 + |\langle C, X^k \rangle| + |\langle b, y^k\rangle|}.
+            \end{equation}
+            Then, for $k \ge 1$, the following holds:
+            \begin{align*}
+                &-\| y^* \| \epsilon_k \le \langle C, X^k - X^* \rangle \le \frac{1}{k} \Bigg(\frac{1}{2\sigma_0} \|X^0 - X^* \|^2 + 2M \sum_{i=1}^k i\epsilon_i\Bigg), \\
+                &\| \mathcal{A}(X^k) - b\| \le \epsilon_k \le O\Big(\frac{1}{k}\Big), \\
+                &\Big\|\sum_{i=1}^my_i^kA_i + S^k - C\Big\| \le O\Bigg(\frac{1}{\sqrt{k\sigma_k}}\Bigg).
+            \end{align*}
+        \end{theorem}
+
+    \begin{lemma} \label{lem:specialcase_ipgm}
+        If $\sigma_k \ge O(\sqrt{k})$ for all $k \ge 1$, that is, if a sufficiently large lower bound is further imposed on $\sigma_k$. Then the implication from Theorem \ref{thm:ipgm} can be written as:
+        \begin{equation}
+            \max \Big\{ \langle C, X^k-X^* \rangle, \| \mathcal{A}(X^k) - b\|, \Big\|\sum_{i=1}^my_i^kA_i + S^k - C\Big\| \Big\} \le O\Big(\frac{1}{k}\Big), \quad \forall k \ge 1.
+        \end{equation}
+    \end{lemma}
+
+    However, even with a sufficiently large lower bound for $\sigma_k$, the convergence of iPGM is still quite slow. To combat this issue, \cite{yang2021inexact} proposes a problem-dependent acceleration strategy to improve the computational time of large-scale SDPs. Algorithm \ref{algo:acceleration} presents the psuedocode for the aforementioned acceleration technique on a standard POP with a binary constraint.
+
+    \begin{algorithm}[H] 
+    \caption{Acceleration Technique for Binary POP}\label{algo:acceleration}
+        \SetAlgoLined
+        \SetKwInOut{Input}{Input}\SetKwInOut{Output}{Output}
+        \Input{$r \ge 1$, $\overline{X}^k = \sum_i \lambda_i v_i v_i^T\in \mathbb{S}_+^n$ be the $k$-th iterate primal variable produced by iPGM.}
+        \Output{$\hat{X}^k \in \mathbb{S}_+^n$.}
+        \BlankLine
+        \Begin{
+            \For{$i \leftarrow 1$ \KwTo $r$}{
+            
+            $v_i^k \leftarrow \frac{v_i}{v_i[1]}$\; \label{op:projection} \Comment{Projection Step}
+
+            
+            $\overline{x_i}^k \leftarrow \sgn(v_i[x])$ 
+
+            $\hat{x_i}^k \leftarrow \nlp(\overline{x_i}^k)$ \label{op:local_search} \Comment{Local Search}
+            
+            }
+
+            $\hat{x}^k \leftarrow \argmin_{\hat{x_i}^k} p(\hat{x_i}^k)$
+
+            $\hat{X}^k \leftarrow [\hat{x}^k]_\kappa[\hat{x}^k]_\kappa^T$
+            
+        }
+    \end{algorithm}
+
+    Although both the projection and local search are problem-dependent, the projection step can be discarded if the projection is proven to be too challenging. However, the same cannot be said about local search. 
+    
+    A crucial part of Algorithm \ref{algo:acceleration} is the local search function denoted by $\nlp$. Additionally, the usage of local search is heuristic and can only be supported by the numerical experiments seen in Section \ref{sec:numExpWahba}. Lastly, there will be instances where Algorithm \ref{algo:acceleration} can fail to produce any feasible option with respect the output of iPGM; however, this will not have any negative effects to Algorithm \ref{algo:stride} in regards to its convergence.
+
+    \subsection{Spectrahedron Inexact Projected Gradient Descent Along Vertices}
+
+    Recall from \ref{sec:ipgm_main}, the convergence of iPGM can be rather slow. As a result, a problem-dependent acceleration algorithm is employed to improve computational time of large-scale SDPs. In this section, we will introduce pseudocode for Spectrahedron Inexact Projected Gradient Descent Along Vertices (STRIDE) in Algorithm \ref{algo:stride}, along with its convergence analysis in Theorem \ref{thm:stride_convergence}.
+
+    \begin{algorithm}[H] 
+    \caption{Spectrahedron Inexact Projected Gradient Descent Along Vertices (STRIDE)}\label{algo:stride}
+        \SetAlgoLined
+        \SetKwInOut{Input}{Input}\SetKwInOut{Output}{Output}
+        \Input{$(X^0,y^0,S^0) \in \mathbb{S}_+^n \times \mathbb{R}^m \times \mathbb{S}_+^n$, $\eta = \max \{\eta_p, \eta_d, \eta_g \}$, $\delta > 0$, $m > 0$, $r \in [1,n]$, $\{ \epsilon_k \}$ be a nonnegative sequence such that $\{ k\epsilon_k \}$ summable and $\{ \sigma_k \}$ be a nondecreasing positive sequence.}
+        \Output{$(X^k,y^k,S^k) \in \mathbb{S}_+^n \times \mathbb{R}^m \times \mathbb{S}_+^n$.}
+        \BlankLine
+        \Begin{
+            $X^k \leftarrow 0$,
+            $\mathcal{V} \leftarrow \emptyset$.
+            
+            \If{$X^0$ in feasible set of (\ref{eq:pop_sdp_eq})}{
+                $\mathcal{V} \leftarrow \mathcal{V} \cup \{X^0\}$ 
+            }
+            
+            \For{$k \leftarrow 1$ \KwTo $m$}{
+            
+            $\overline{X}^k \leftarrow$ (\ref{eq:psd_matrix_update}) satisfying (\ref{eq:ipgm_conditons1}) - (\ref{eq:ipgm_conditons3}). 
+            
+            \If{$\eta < \delta$}{
+            \textbf{Output} $(\overline{X}^k, y^k, S^k)$
+            
+            Break
+            }
+
+            $\hat{X}^k \leftarrow$ Algorithm \ref{algo:acceleration} with $r$ and $\overline{X}^k$ as its parameters.
+            
+            \eIf{$\langle C, \hat{X^k} \rangle < \min \{ \min_X \{ \langle C,X \rangle \mid X \in \mathcal{V} \}, \langle C, \overline{X}^k \rangle \}$}{
+            $X^k \leftarrow \hat{X}^k$ 
+            }{
+            $X^k \leftarrow \overline{X}^k$
+            }
+
+            \If{$X^k = \hat{X}^k$}{$\mathcal{V} \leftarrow \mathcal{V} \cup \{\hat{X}^k\}$}
+            
+            }
+        }
+    \end{algorithm}
+
+    \begin{remark}
+        In STRIDE, a safeguarding policy is implemented and can be seen after Algorithm \ref{algo:acceleration} is called in Algorithm \ref{algo:stride}. This policy ensures a strict decrease of our objective value of the original SDP seen in (\ref{eq:pop_sdp_eq}). We now proceed to Theorem \ref{thm:stride_convergence} where the convergence analysis of STRIDE is covered.
+    \end{remark}
+
+    \begin{theorem} \label{thm:stride_convergence}
+        Let $\{(\overline{X}^k,y^k,S^k)\} \in \mathbb{S}_+^n \times \mathbb{R}^m \times \mathbb{S}_+^n$ be any sequence generated by Algorithm \ref{algo:stride} and there exist some $M > 0$  such that $\|y^k\| \le M$ for all $k \ge 0$. If strong duality holds and $\sigma_k \ge O(\sqrt{k})$ for all $k \ge 1$, then $\{\langle C, \overline{X}^k \rangle\}$ converges to the optimal value of (\ref{eq:pop_sdp_eq}).
+    \end{theorem}
+
+    \begin{proof}
+        Immediately, we see that the proof of convergence for Algorithm \ref{algo:stride} has two initialization cases for the set $\mathcal{V}$ (i.e. $\mathcal{V} = \emptyset$ and $\mathcal{V} = \{X^0\}$). We will consider the $\mathcal{V} = \emptyset$ initialization case as the $\mathcal{V} = \{X^0\}$ initialization case can be found in Theorem 2 of \cite{yang2021inexact}.
+        \\\\
+        Suppose $|\mathcal{V}| = \infty$, then we have an infinite sequence of feasible solutions to (\ref{eq:pop_sdp_eq}), and the objective value of (\ref{eq:pop_sdp_eq}) converges to $-\infty$. Equivalently, (\ref{eq:pop_sdp_eq}) is now unbounded and a contradiction is reached as strong duality holds by assumption.
+        \\\\
+        Suppose $|\mathcal{V}| < \infty$, then there are 2 subcases to consider. 
+        \begin{enumerate}
+            \item Let us consider $|\mathcal{V}| = 0$, or equivalently, all computed $\hat{X}^k$ from Algorithm \ref{algo:acceleration} has be denied by the safeguarding policy. Then STRIDE will simply proceed as the iPGM which converges with $O\big(\frac{1}{k}\big)$ to the optimal solution to (\ref{eq:pop_sdp_eq}) by Theorem \ref{thm:ipgm} and Lemma \ref{lem:specialcase_ipgm}.
+
+            \item Let us consider $|\mathcal{V}| > 0$, or equivalently, some computed $\hat{X}^k$ have been accepted by the safeguarding policy. Then STRIDE will proceed as the iPGM with the latest accepted $X^k$ along with its dual variables as its initial point. Again, this will converge to optimal solution to (\ref{eq:pop_sdp_eq}) with $O\big(\frac{1}{k}\big)$ by Theorem \ref{thm:ipgm} and Lemma \ref{lem:specialcase_ipgm}.
+        \end{enumerate}
+    \end{proof}
+
+    \subsection{The Projection Subproblem}
+    Recall the Inexact Projected Gradient Method (iPGM), a natural question is to ask what methods can be employed to solve the subproblem seen in (\ref{eq:psd_matrix_update}). This problem can be formulated as follows
+
+    \begin{align}
+        \min_X & \bigg\{\frac{1}{2} \|X-Z\|^2 \mid X \text{ is a feasible solution to } (\ref{eq:pop_sdp_eq}) \bigg\}, \label{eq:primal_subproblem}\\
+        \max_{W,\xi} & \bigg\{ \frac{1}{2} \Big\|W + \sum_{i=1}^m\xi_iA_i + Z \Big\|^2 - \langle b, \xi \rangle \mid \xi \in \mathbb{R}^m, W \in \mathbb{S}_+^n \bigg\}, \label{eq:dual_subproblem}
+    \end{align}
+    where (\ref{eq:primal_subproblem}) is the primal subproblem and (\ref{eq:dual_subproblem}) is the dual subproblem. Informally speaking, (\ref{eq:primal_subproblem}) is equivalent to finding the matrix $X$ such that it is both feasible and the closest approximate to a given matrix $Z$ from a Frobenius norm sense. 
+
+    While Dykstra's projection algorithm can solve $(\ref{eq:primal_subproblem})$, its computational speed is rather undesirable. As a result, we will consider the dual problem (\ref{eq:dual_subproblem}), where the problem can be solved much more efficiently. \cite{yang2021inexact} proposes a two-phase algorithm to solve (\ref{eq:dual_subproblem}), which consist of a symmetric Gauss-Seidel based accelerated proximal gradient method and a modified limited-memory Broyden–Fletcher–Goldfarb–Shanno algorithm, which can be located in Algorithm 4 and Algorithm 5, respectively. Lastly, we will study the convergence result the symmetric Gauss-Seidel based promximal gradient method in Theorem \ref{thm:sGS_convergence}. 
+
+    \begin{theorem} \label{thm:sGS_convergence}
+        Let $(W^*, \xi^*) \in \mathbb{S}_+^n \times \mathbb{R}^m$ be an optimal solution to (\ref{eq:dual_subproblem}) with $\det(AA^*) \ne 0$. Consider the sequence $\{W^k, \xi^k\}$ generated by Algorithm 4 in \cite{yang2021inexact}, then 
+
+        \begin{equation}
+            0 \le f(W^k, \xi^k) - f(W^*, \xi^*) \le O\bigg(\frac{1}{k^2}\bigg),
+        \end{equation}
+        where $f$ is defined identically as in Section 4.1 of \cite{yang2021inexact}.
+    \end{theorem}
+
+    \begin{proof}
+        Let $g,q_k$ also be defined identically as in Section 4.1 of \cite{yang2021inexact}, then the conditions (11) and (12) in \cite{iapgm} holds for all $k$. Furthermore, define a linear operator $H_k$ as follows:
+        \begin{equation}
+            H_k := (D+U)D^{-1}(D+U^*),
+        \end{equation}
+        where $U,D$ are defined as follows:
+        \begin{equation}
+            U := \begin{bmatrix}
+                0 & A^* \\ 0 & 0
+            \end{bmatrix} \quad D := \begin{bmatrix}
+                I & 0 \\ 0 & AA^*
+            \end{bmatrix}
+        \end{equation}
+        This choice of $H_k \succ 0$ for all $k$ immediately follows from $AA^*$ is nonsingular by assumption. Then, from Theorem 2.1 in \citet{iapgm}, there exists a constant $c \ge 0$ such that 
+        \begin{equation}
+            0 \le f(W^k, \xi^k) - f(W^*, \xi^*) \le \frac{c}{(k+1)^2}.
+        \end{equation}
+    \end{proof}
+
+\section{Outlier Robust Wahba Problem}\label{sec:wahbaSection}
+     The main motivation behind the implementation of STRIDE is the numerical scalability of the algorithm on large number of constraints when dealing with SDPs. In this section, we will cover the quaternion-based outlier robust Wahba problem, which will give us better insight at the scalability of STRIDE when benchmarked against traditional solvers such as MOSEK and SeDuMi where an interior point method is employed.
+
+     To begin, the Wahba problem is a rotational matrix estimation problem which is defined as follows:
+     \begin{equation}
+         \min_{R \in \so} \sum_i w_i \|v_i - Ru_i\|^2, \label{eq:stdWahba}
+     \end{equation}
+     where the set $\so = \{R \in \mathbb{R}^{3\times 3} \mid RR^T = R^TR = I, \det(R) = 1 \}$, $w_i^2$ are weights known a priori with respect to $(v_i,u_i) \in \mathbb{R}^3 \times \mathbb{R}^3$. Informally, this problem requires one to determine a rotation matrix $R$ such that it minimizes the distance between all given pairs of vectors $v_i$ and rotated $u_i$ in a squared Euclidean norm sense. 
+
+     \subsection{Quaternion-based Outlier Robust Wahba Problem} \label{subsec:outlierQWahba}
+     Let us consider an equivalent problem using quaternions along with the addition of outliers from some given data instead. Then, (\ref{eq:stdWahba}) can be formulated as follows:
+
+     \begin{equation}
+         \min_{q \in \mathcal{S}^3} \sum_i \min \bigg\{\frac{\|\hat{v}_i - q \odot \hat{u}_i \odot q^{-1} \|^2}{c_i^2}, 1 \bigg\}, \label{eq:QWahba}
+     \end{equation}
+     where the set $\mathcal{S}^3= \{q\in\mathbb{R}^4 \mid \|q\|=1 \}$, $\hat{v}_i = \begin{bmatrix}
+         v_i^T, 0
+     \end{bmatrix}^T$ and $\hat{u}_i$ is defined similarly. Lastly, the operation $\odot$ denotes the standard quaternion product and $q^{-1}$ denotes the standard inverse quaternion. 
+
+     We can further reformulate (\ref{eq:QWahba}) to be binary constrained by introducing $\theta_i \in \{-1,+1\}$ to label inliers from outliers. For outliers, we can pick $\theta_i = -1$ and $\theta_i = 1$ for inliers, then (\ref{eq:QWahba}) becomes:
+     \begin{equation}
+         \min_{q \in \mathcal{S}^3, \theta_i\in \{\pm 1\}} \sum_i \frac{1+\theta_i}{2}\frac{\|\hat{v}_i - q \odot \hat{u}_i \odot q^{-1} \|^2}{c_i^2} + \frac{1-\theta_i}{2}. \label{eq:QWahba2}
+     \end{equation}
+    Then, utilizing the binary cloning technique and an SDP reformulation discussed in Proposition 3 to Proposition 5 of \cite{YangWahba}. The problem seen in (\ref{eq:QWahba2}) can be reformulated into an semidefinite program as follows:
+    \begin{align}
+        \min_{Z \succeq 0} \quad & \trace(QZ) \nonumber\\
+        \text{subject to} \quad & \tr([Z]_{qq}) = 1 \nonumber\\
+        & [Z]_{q_iq_i} = [Z]_{qq}, \quad \forall i \nonumber\\
+        & \rank(Z) = 1 \label{eq:nonconvex_constraint},
+    \end{align}
+    where $Q,Z,q_i,q$ are defined identically as in Proposition 3 to Proposition 5 of \cite{YangWahba}. Finally, we will relax the rank 1 constraint seen in (\ref{eq:nonconvex_constraint}), and the resulting problem becomes:
+    \begin{align}
+        \min_{Z \succeq 0} \quad & \trace(QZ) \nonumber\\
+        \text{subject to} \quad & \tr([Z]_{qq}) = 1 \nonumber\\
+        & [Z]_{q_iq_i} = [Z]_{qq}, \quad \forall i \nonumber.
+    \end{align}
+
+    \subsection{Numerical Experiments} \label{sec:numExpWahba}
+    In this section, we benchmarked STRIDE against proprietary and open source solvers such as MOSEK and SeDuMi in two numerical experiments using 50 and 100 data points, which we will denote as Wahba 50 and Wahba 100, respectively. Additionally, we utilized a heuristic method proposed by \cite{yang2021inexact} called Graduated Non-Convexity (GNC) along with STRIDE which significantly decrease computational time as the solution is not certified for optimality. Despite this lack of certification, it is able to compute the optimal solution with an extremely high success rate.
+
+    \begin{table}[h]
+    \centering
+    \begin{tabular}{lcc}
+        \toprule
+        Solver & Wahba 50 Time (Seconds) & Wahba 100 Time (Seconds) \\ 
+        \midrule
+        STRIDE+GNC       & 1.684       & 22.581 \\
+        STRIDE       & 7.562       & 46.270 \\
+        MOSEK       & 13.086       & 488.003 \\
+        SeDuMi       & 1011.400       & OOM \\
+        \bottomrule
+    \end{tabular}
+    \caption{Time Consumption for Wahba 50 and Wahba 100}
+    \label{tab:wahbatable}
+    \end{table}
+
+    From Table \ref{tab:wahbatable}, we observed that the computational time needed for SeDuMi to solve a relatively small problem is almost 2 order-of-magnitude higher than MOSEK; for a relatively medium sized problem with a $404\times404$ moment matrix with $31301$ equality constraints (Wahba 100), MOSEK fails to compute a solution within the same order-of-magnitude as STRIDE, and SeDuMi faces severe numerical instability 
+    issues and out-of-memory (OOM) errors for both problems.
+
+% Acknowledgments---Will not appear in anonymized version
+\acks{We thank Professor Yang Zheng and Teaching Assistant Feng-Yi Liao}
+
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}
