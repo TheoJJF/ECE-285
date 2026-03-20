@@ -1,6 +1,6 @@
 # Polynomial Optimization Algorithms - Inexact Projected Gradient Descent
 
-This repository contains all code used in the literature review for ECE 285 (Semidefinite Semidefinite and Sum-of-squares Optimization).
+This repository contains all code used for numerical simulations in the literature review for ECE 285 (Semidefinite Semidefinite and Sum-of-squares Optimization).
 
 ## Dependencies 
 
